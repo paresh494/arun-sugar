@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Arun Rajvanshi Sugar Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body { font-family: Arial; padding: 15px; background: #f5f5f5; }
+    h2 { text-align: center; }
+    label { font-weight: bold; }
+
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin: 6px 0;
+      font-size: 16px;
+    }
+
+    button { background: #007bff; color: white; border: none; border-radius: 5px; }
+    .danger { background: red; }
+    .edit { background: orange; }
+
+    .container {
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+
+    table {
+      width: 100%;
+      margin-top: 15px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .high { background: #ffcccc; }
+    .low { background: #cce5ff; }
+  </style>
+</head>
+
+<body>
+
+<h2>🩺 Arun Rajvanshi Sugar Tracker (Target: 140)</h2>
+
+<div class="container">
+  <label>Enter Access Code</label>
+  <input type="password" id="accessCode" placeholder="Enter code">
+  <button onclick="unlock()">Unlock Edit Access</button>
+  <p id="accessStatus">View Only Mode</p>
+</div>
+
+<div class="container">
+  <label>Date</label>
+  <input type="date" id="date">
+
+  <label>Time</label>
+  <input type="time" id="time">
+  <button onclick="setNow()">Use Current Time</button>
+
+  <label>Sugar (mg/dL)</label>
+  <input type="number" id="sugar">
+
+  <label>Reading Type</label>
+<select id="type">
+  <option>Fasting</option>
+  <option>Before Breakfast</option>
+  <option>After Breakfast</option>
+  <option>Before Lunch</option>
+  <option>After Lunch</option>
+  <option>5-6 PM</option>
+  <option>Before Dinner</option>
+  <option>After Dinner</option>
+</select>
+  <label>Food</label>
+  <input type="text" id="food">
+
+  <label>Insulin Type</label>
+  <select id="insulin">
+    <option value="">None</option>
+    <option>Regular</option>
+    <option>Long Acting</option>
+  </select>
+
+  <label>Units</label>
+  <input type="number" id="units">
+
+  <label>Notes</label>
+  <input type="text" id="notes">
+
+  <button onclick="addEntry()">Add Entry</button>
+  <button onclick="copySummary()">Copy Daily Summary</button>
+</div>
+
+<table>
+<thead>
+<tr>
+<th>Date</th><th>Time</th><th>Sugar</th><th>Type</th>
+<th>Food</th><th>Insulin</th><th>Units</th><th>Actions</th>
+</tr>
+</thead>
+<tbody id="tableBody"></tbody>
+</table>
+
+<canvas id="chart"></canvas>
+
+<script type="module">
+let enteredCodeCache = "";
+
+window.copySummary = function () {
+  const today = new Date().toISOString().split("T")[0];
+
+  const todayData = data.filter(d => d.date === today);
+
+  let summary = {
+    fasting: "",
+    beforeBreakfast: "",
+    afterBreakfast: "",
+    beforeLunch: "",
+    afterLunch: "",
+    evening: "",
+    beforeDinner: "",
+    afterDinner: ""
+  };
+
+  todayData.forEach(d => {
+    switch (d.type) {
+      case "Fasting":
+        summary.fasting = d.sugar;
+        break;
+      case "Before Breakfast":
+        summary.beforeBreakfast = d.sugar;
+        break;
+      case "After Breakfast":
+        summary.afterBreakfast = d.sugar;
+        break;
+      case "Before Lunch":
+        summary.beforeLunch = d.sugar;
+        break;
+      case "After Lunch":
+        summary.afterLunch = d.sugar;
+        break;
+      case "5-6 PM":
+        summary.evening = d.sugar;
+        break;
+      case "Before Dinner":
+        summary.beforeDinner = d.sugar;
+        break;
+      case "After Dinner":
+        summary.afterDinner = d.sugar;
+        break;
+    }
+  });
+
+  const text = `Daily blood sugar monitoring
+
+Date: ${today}
+
+fasting=${summary.fasting}
+before Breakfast=${summary.beforeBreakfast}
+after Breakfast=${summary.afterBreakfast}
+Before Lunch=${summary.beforeLunch}
+2 hours after lunch=${summary.afterLunch}
+5-6 pm=${summary.evening}
+Before Dinner=${summary.beforeDinner}
+two hours after dinner=${summary.afterDinner}
+`;
+
+  navigator.clipboard.writeText(text);
+  alert("Copied to clipboard!");
+};
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {
+  getFirestore, collection, addDoc,
+  onSnapshot, query, orderBy,
+  deleteDoc, doc, updateDoc, getDocs
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDb0Z4ady9EAlGHFq83MmoOiecNU3HoB88",
+  authDomain: "arun-sugar.firebaseapp.com",
+  projectId: "arun-sugar"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let data = [];
+let editingId = null;
+let canEdit = false;
+
+// 🔐 Unlock using Firebase-stored codes
+window.unlock = async function () {
+  
+  
+  const entered = accessCode.value.trim();
+enteredCodeCache = entered;
+  const snapshot = await getDocs(collection(db, "accessCodes"));
+
+  let valid = false;
+
+  snapshot.forEach(doc => {
+    const dbCode = String(doc.data().code).trim();
+
+
+    
+    if (dbCode === entered) {
+      valid = true;
+    }
+  });
+
+  if (valid) {
+    canEdit = true;
+    accessStatus.innerText = "Edit Mode Enabled";
+    accessCode.value = "";
+    toggleEditAccess(true);
+  } else {
+    alert("Wrong code");
+  }
+};
+
+// ⏱ Set current date/time
+window.setNow = function () {
+  const now = new Date();
+  date.value = now.toISOString().split("T")[0];
+  time.value = now.toTimeString().slice(0,5);
+};
+
+// ➕ Add / Update Entry
+window.addEntry = async function () {
+  if (!canEdit) return alert("Enter access code");
+
+  const sugarVal = parseInt(sugar.value);
+  if (!sugarVal) return alert("Enter sugar value");
+
+  const insulinType = insulin.value;
+  const unitsVal = insulinType ? units.value : "";
+
+  const entryDateTime = new Date(`${date.value}T${time.value}`);
+
+const entry = {
+  date: date.value,
+  time: time.value,
+  sugar: sugarVal,
+  type: type.value,
+  food: food.value,
+  insulin: insulinType,
+  units: unitsVal,
+  notes: notes.value,
+  createdAt: Date.now(),
+  readingTime:
+  entryDateTime.getTime(), // ✅ ADD THIS
+  code: enteredCodeCache
+};
+
+  if (editingId) {
+    await updateDoc(doc(db, "sugarData", editingId), entry);
+    editingId = null;
+  } else {
+    await addDoc(collection(db, "sugarData"), entry);
+  }
+
+  clearForm();
+};
+
+// 🎛 UI control
+function toggleEditAccess(flag) {
+  document.querySelector("button[onclick='addEntry()']").style.display = flag ? "block" : "none";
+
+  document.querySelectorAll(".edit, .danger").forEach(btn => {
+    btn.style.display = flag ? "inline-block" : "none";
+  });
+}
+
+// 🧹 Clear form
+function clearForm() {
+  document.querySelectorAll("input").forEach(i => i.value = "");
+}
+
+// ❌ Delete
+window.deleteEntry = async function (id) {
+  if (!canEdit) return alert("No permission");
+  if (!confirm("Delete this entry?")) return;
+  await deleteDoc(doc(db, "sugarData", id));
+};
+
+// ✏️ Edit
+window.editEntry = function (id) {
+  if (!canEdit) return alert("No permission");
+document.querySelector("button[onclick='addEntry()']").innerText = "Update Entry";
+  const item = data.find(d => d.id === id);
+  if (!item) return;
+
+  date.value = item.date;
+  time.value = item.time;
+  sugar.value = item.sugar;
+  type.value = item.type;
+  food.value = item.food;
+  insulin.value = item.insulin;
+  units.value = item.units;
+  notes.value = item.notes;
+
+  editingId = id;
+};
+
+// 🔄 Realtime listener
+const q = query(collection(db, "sugarData"), orderBy("readingTime","desc"));
+
+onSnapshot(q, (snapshot) => {
+  data = [];
+  snapshot.forEach(docSnap => {
+    data.push({ id: docSnap.id, ...docSnap.data() });
+  });
+  document.querySelector("button[onclick='addEntry()']").innerText = "Add Entry";
+  render();
+});
+
+
+async function migrateOldData() {
+  const snapshot = await getDocs(collection(db, "sugarData"));
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const docSnap of snapshot.docs) {
+    const d = docSnap.data();
+
+    try {
+      if (!d.readingTime) {
+        if (d.date && d.time) {
+          const ts = new Date(`${d.date}T${d.time || "00:00"}`).getTime();
+
+          await updateDoc(doc(db, "sugarData", docSnap.id), {
+            readingTime: ts
+          });
+
+          updated++;
+          console.log("✅ Updated:", docSnap.id);
+        } else {
+          skipped++;
+          console.log("⚠️ Skipped (missing date/time):", docSnap.id, d);
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error updating:", docSnap.id, err);
+    }
+  }
+
+  alert(`Done! Updated: ${updated}, Skipped: ${skipped}`);
+}
+
+
+// 📊 Render
+function render() {
+  const tbody = document.getElementById("tableBody");
+  tbody.innerHTML = "";
+
+  data.forEach(d => {
+    let cls = "";
+    if (d.sugar > 180) cls = "high";
+    if (d.sugar < 70) cls = "low";
+
+    tbody.innerHTML += `
+      <tr class="${cls}">
+        <td>${d.date}</td>
+        <td>${d.time}</td>
+        <td>${d.sugar}</td>
+        <td>${d.type}</td>
+        <td>${d.food}</td>
+        <td>${d.insulin}</td>
+        <td>${d.units}</td>
+        <td>
+          <button class="edit" onclick="editEntry('${d.id}')">Edit</button>
+          <button class="danger" onclick="deleteEntry('${d.id}')">Delete</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  drawChart();
+}
+
+// 📈 Chart
+let chart;
+function drawChart() {
+  const ctx = document.getElementById("chart");
+
+  const labels = data.map(d => d.date + " " + d.time);
+  const values = data.map(d => d.sugar);
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Sugar Level',
+        data: values
+      }]
+    }
+  });
+}
+
+// 🔒 default = view only
+toggleEditAccess(false);
+
+// 💉 Disable units if no insulin
+insulin.addEventListener("change", () => {
+  if (!insulin.value) {
+    units.value = "";
+    units.disabled = true;
+  } else {
+    units.disabled = false;
+  }
+});
+</script>
+
+</body>
+</html>
